@@ -4,9 +4,7 @@ name: Build AimTrainer Windows
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
 
 jobs:
   build:
@@ -16,35 +14,52 @@ jobs:
       - name: Baixar repositorio
         uses: actions/checkout@v4
 
-      - name: Extrair projeto
+      - name: Extrair e localizar projeto
         shell: pwsh
         run: |
-          $zip = Get-ChildItem -Path . -Filter "AimTrainer-Novo-Corrigido.zip" -Recurse | Select-Object -First 1
+          $ErrorActionPreference = "Stop"
+
+          $zip = Get-ChildItem . -Filter "AimTrainer-Novo-Corrigido.zip" -Recurse | Select-Object -First 1
 
           if (-not $zip) {
-            throw "ZIP corrigido nao encontrado"
+            throw "Nao encontrei AimTrainer-Novo-Corrigido.zip. Envie o ZIP para a raiz do repositorio."
           }
 
-          Expand-Archive -Path $zip.FullName -DestinationPath "$env:RUNNER_TEMP\trainer" -Force
+          $dest = "$env:RUNNER_TEMP\trainer"
+          Expand-Archive -LiteralPath $zip.FullName -DestinationPath $dest -Force
 
-          $cmake = Get-ChildItem -Path "$env:RUNNER_TEMP\trainer" -Filter "CMakeLists.txt" -Recurse | Select-Object -First 1
+          $cmake = Get-ChildItem $dest -Filter "CMakeLists.txt" -Recurse | Select-Object -First 1
 
           if (-not $cmake) {
-            throw "CMakeLists.txt nao encontrado"
+            Get-ChildItem $dest -Recurse | ForEach-Object { Write-Host $_.FullName }
+            throw "CMakeLists.txt nao encontrado no ZIP."
           }
 
-          "SOURCE_DIR=$($cmake.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "SOURCE_DIR=$($cmake.DirectoryName)" | Out-File $env:GITHUB_ENV -Append
 
       - name: Configurar CMake
-        run: cmake -S "$env:SOURCE_DIR" -B build
+        shell: pwsh
+        run: |
+          cmake -S "$env:SOURCE_DIR" -B build
+          if ($LASTEXITCODE -ne 0) { throw "Falha ao configurar CMake" }
 
-      - name: Compilar projeto
-        run: cmake --build build --config Release
+      - name: Compilar
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --verbose
+          if ($LASTEXITCODE -ne 0) { throw "Falha na compilacao C++" }
+
+      - name: Verificar executavel
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem build -Filter "AimTrainer.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "AimTrainer.exe nao foi gerado" }
+          Write-Host "Executavel encontrado: $($exe.FullName)"
 
       - name: Publicar executavel
         uses: actions/upload-artifact@v4
         with:
           name: AimTrainer-Windows
-          path: build/Release/AimTrainer.exe
+          path: build/**/AimTrainer.exe
           if-no-files-found: error
           
