@@ -1,0 +1,50 @@
+
+name: Build AimTrainer Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+
+      - name: Extrair projeto
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Path . -Filter "AimTrainer-Novo-Corrigido.zip" -Recurse | Select-Object -First 1
+
+          if (-not $zip) {
+            throw "ZIP corrigido nao encontrado"
+          }
+
+          Expand-Archive -Path $zip.FullName -DestinationPath "$env:RUNNER_TEMP\trainer" -Force
+
+          $cmake = Get-ChildItem -Path "$env:RUNNER_TEMP\trainer" -Filter "CMakeLists.txt" -Recurse | Select-Object -First 1
+
+          if (-not $cmake) {
+            throw "CMakeLists.txt nao encontrado"
+          }
+
+          "SOURCE_DIR=$($cmake.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Configurar CMake
+        run: cmake -S "$env:SOURCE_DIR" -B build
+
+      - name: Compilar projeto
+        run: cmake --build build --config Release
+
+      - name: Publicar executavel
+        uses: actions/upload-artifact@v4
+        with:
+          name: AimTrainer-Windows
+          path: build/Release/AimTrainer.exe
+          if-no-files-found: error
+          
